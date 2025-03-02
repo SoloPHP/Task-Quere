@@ -11,7 +11,8 @@ final readonly class TaskQueue
 {
     public function __construct(
         private Database $db,
-        private string   $table = 'tasks'
+        private string   $table = 'tasks',
+        private int      $lockTimeout = 900 // 15 minutes
     )
     {
     }
@@ -29,9 +30,11 @@ final readonly class TaskQueue
            scheduled_at DATETIME NOT NULL,
            status ENUM('pending', 'in_progress', 'completed', 'failed') NOT NULL DEFAULT 'pending',
            error TEXT NULL,
+           locked_at DATETIME NULL,
            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
            updated_at DATETIME NULL ON UPDATE CURRENT_TIMESTAMP,
-           INDEX idx_status_scheduled (status, scheduled_at)
+           INDEX idx_status_scheduled (status, scheduled_at),
+           INDEX idx_locked_at (locked_at)
        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
     }
 
@@ -42,12 +45,15 @@ final readonly class TaskQueue
      * @param array $payload Task data
      * @param DateTimeImmutable $scheduledAt When to execute the task
      * @return int The ID of the inserted task
-     * @throws JsonException When JSON encoding fails
-     * @throws Exception When database query fails
+     * @throws JsonException|Exception
      */
     public function addTask(string $name, array $payload, DateTimeImmutable $scheduledAt): int
     {
-        $this->db->query("INSERT INTO $this->table SET name = ?s, payload = ?s, scheduled_at = ?d",
+        $this->db->query("INSERT INTO $this->table SET 
+            name = ?s, 
+            payload = ?s, 
+            scheduled_at = ?d,
+            status = 'pending'",
             $name,
             json_encode($payload, JSON_THROW_ON_ERROR),
             $scheduledAt
@@ -57,47 +63,65 @@ final readonly class TaskQueue
     }
 
     /**
-     * Get pending tasks ready for execution.
+     * Get and lock pending tasks atomically
      *
      * @param int $limit Maximum number of tasks to retrieve
      * @return object[] Array of task objects
-     * @throws Exception When database query fails
+     * @throws Exception
      */
     public function getPendingTasks(int $limit = 10): array
     {
-        $now = new DateTimeImmutable();
+        $this->db->beginTransaction();
 
-        $this->db->query(
-            "SELECT * FROM $this->table WHERE status = 'pending' AND scheduled_at <= ?d LIMIT ?i",
-            $now,
-            $limit
-        );
+        try {
+            $now = new DateTimeImmutable();
+            $timeout = $now->modify("-$this->lockTimeout seconds");
 
-        return $this->db->fetchAll();
-    }
+            $this->db->query("SELECT * FROM $this->table 
+                WHERE status = 'pending' 
+                AND scheduled_at <= ?d 
+                AND (locked_at IS NULL OR locked_at <= ?d)
+                ORDER BY scheduled_at 
+                LIMIT ?i 
+                FOR UPDATE SKIP LOCKED",
+                $now,
+                $timeout,
+                $limit
+            );
 
-    /**
-     * Mark a task as in progress.
-     *
-     * @param int $taskId Task ID to mark
-     * @throws Exception When database query fails
-     */
-    public function markInProgress(int $taskId): void
-    {
-        $this->db->query("UPDATE $this->table SET status = 'in_progress' WHERE id = ?i",
-            $taskId
-        );
+            $tasks = $this->db->fetchAll();
+
+            foreach ($tasks as $task) {
+                $this->db->query(
+                    "UPDATE $this->table SET 
+                    status = 'in_progress',
+                    locked_at = NOW() 
+                    WHERE id = ?i",
+                    $task->id
+                );
+            }
+
+            $this->db->commit();
+            return $tasks;
+        } catch (Exception $e) {
+            $this->db->rollBack();
+            throw $e;
+        }
     }
 
     /**
      * Mark a task as completed.
      *
      * @param int $taskId Task ID to mark
-     * @throws Exception When database query fails
+     * @throws Exception
      */
     public function markCompleted(int $taskId): void
     {
-        $this->db->query("UPDATE $this->table SET status = 'completed' WHERE id = ?i",
+        $this->db->query(
+            "UPDATE $this->table SET 
+            status = 'completed',
+            locked_at = NULL 
+            WHERE id = ?i",
             $taskId
         );
     }
@@ -107,12 +131,16 @@ final readonly class TaskQueue
      *
      * @param int $taskId Task ID to mark
      * @param string $error Error description
-     * @throws Exception When database query fails
+     * @throws Exception
      */
     public function markFailed(int $taskId, string $error = ''): void
     {
         $this->db->query(
-            "UPDATE $this->table SET status = 'failed', error = ?s WHERE id = ?i",
+            "UPDATE $this->table SET 
+            status = 'failed',
+            error = ?s,
+            locked_at = NULL 
+            WHERE id = ?i",
             $error,
             $taskId
         );
@@ -130,13 +158,46 @@ final readonly class TaskQueue
 
         foreach ($tasks as $task) {
             try {
-                $this->markInProgress($task->id);
                 $payload = json_decode($task->payload, true, 512, JSON_THROW_ON_ERROR);
                 $callback($task->name, $payload);
                 $this->markCompleted($task->id);
             } catch (Throwable $e) {
                 $this->markFailed($task->id, $e->getMessage());
+
+                if ($this->isRetryableError($e)) {
+                    $this->retryTask($task);
+                }
             }
         }
+    }
+
+    /**
+     * Check if error is retryable
+     */
+    private function isRetryableError(Throwable $e): bool
+    {
+        return $e->getCode() === 429 // Too Many Requests
+            || str_contains($e->getMessage(), 'Connection timed out');
+    }
+
+    /**
+     * Reschedule task for retry
+     */
+    private function retryTask(object $task): void
+    {
+        $retryDelay = match (true) {
+            $task->retry_count < 3 => 300, // 5 minutes
+            $task->retry_count < 5 => 1800, // 30 minutes
+            default => 3600 // 1 hour
+        };
+
+        $this->db->query("UPDATE $this->table SET 
+            status = 'pending',
+            scheduled_at = DATE_ADD(NOW(), INTERVAL ?i SECOND),
+            locked_at = NULL 
+            WHERE id = ?i",
+            $retryDelay,
+            $task->id
+        );
     }
 }
