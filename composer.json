@@ -1,0 +1,25 @@
+{
+  "name": "solophp/task-queue",
+  "type": "library",
+  "description": "Simple PHP task queue with database storage",
+  "keywords": ["php", "queue", "tasks", "jobs", "scheduler", "async"],
+  "license": "MIT",
+  "authors": [
+    {
+      "name": "Vitaliy Olos",
+      "email": "vedastudio@gmail.com"
+    }
+  ],
+  "autoload": {
+    "psr-4": {
+      "Solo\\": "Solo/"
+    }
+  },
+  "require": {
+    "php": ">=8.2",
+    "ext-json": "*",
+    "solophp/database": "^2.8"
+  },
+  "minimum-stability": "dev",
+  "prefer-stable": true
+}
