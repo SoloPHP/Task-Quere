@@ -46,6 +46,7 @@ final readonly class TaskQueue
             id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
             name VARCHAR(255) NOT NULL,
             payload JSON NOT NULL,
+            payload_type VARCHAR(64) NOT NULL DEFAULT 'default',
             scheduled_at DATETIME NOT NULL,
             status ENUM('pending', 'in_progress', 'completed', 'failed') NOT NULL DEFAULT 'pending',
             retry_count INT UNSIGNED NOT NULL DEFAULT 0,
@@ -55,7 +56,8 @@ final readonly class TaskQueue
             locked_at TIMESTAMP NULL DEFAULT NULL,
             expires_at TIMESTAMP NULL DEFAULT NULL,
             INDEX idx_status_scheduled (status, scheduled_at),
-            INDEX idx_locked_at (locked_at)
+            INDEX idx_locked_at (locked_at),
+            INDEX idx_payload_type (payload_type)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
     }
 
@@ -63,18 +65,23 @@ final readonly class TaskQueue
      * Add a task to the queue.
      *
      * @param string $name Task identifier
-     * @param array $payload Task data
-     * @param DateTimeImmutable $scheduledAt When to execute the task
-     * @param DateTimeImmutable|null $expiresAt When the task expires
-     * @return int The ID of the inserted task
-     * @throws JsonException When JSON encoding fails
+     * @param array $payload Task data (should include 'type' key if filtering by type is needed)
+     * @param DateTimeImmutable $scheduledAt When the task should be executed
+     * @param DateTimeImmutable|null $expiresAt When the task becomes invalid (optional)
+     * @return int ID of the newly inserted task
+     * @throws JsonException When payload encoding fails
      * @throws Exception When database query fails
      */
     public function addTask(string $name, array $payload, DateTimeImmutable $scheduledAt, ?DateTimeImmutable $expiresAt = null): int
     {
-        $this->db->query("INSERT INTO $this->table SET name = ?s, payload = ?s, scheduled_at = ?d, expires_at = ?d",
+        $payloadJson = json_encode($payload, JSON_THROW_ON_ERROR);
+        $payloadType = $payload['type'] ?? 'default';
+
+        $this->db->query(
+            "INSERT INTO $this->table SET name = ?s, payload = ?s, payload_type = ?s, scheduled_at = ?d, expires_at = ?d",
             $name,
-            json_encode($payload, JSON_THROW_ON_ERROR),
+            $payloadJson,
+            $payloadType,
             $scheduledAt,
             $expiresAt
         );
@@ -83,30 +90,30 @@ final readonly class TaskQueue
     }
 
     /**
-     * Get pending tasks ready for execution.
+     * Retrieve pending tasks ready for execution.
      *
      * @param int $limit Maximum number of tasks to retrieve
-     * @return object[] Array of task objects
+     * @param string|null $onlyType If provided, only tasks with this payload_type will be returned
+     * @return object[] Array of task records as objects
      * @throws Exception When database query fails
      */
-    public function getPendingTasks(int $limit = 10): array
+    public function getPendingTasks(int $limit = 10, ?string $onlyType = null): array
     {
         $now = new DateTimeImmutable();
 
-        $this->db->query(
-            "SELECT * FROM $this->table WHERE status = 'pending' AND scheduled_at <= ?d AND (expires_at IS NULL OR expires_at > ?d) AND locked_at IS NULL LIMIT ?i FOR UPDATE",
-            $now,
-            $now,
-            $limit
-        );
+        if ($onlyType) {
+            $this->db->query("SELECT * FROM $this->table WHERE status = 'pending' AND scheduled_at <= ?d AND (expires_at IS NULL OR expires_at > ?d) AND locked_at IS NULL AND payload_type = ?s LIMIT ?i FOR UPDATE", $now, $now, $onlyType, $limit);
+        } else {
+            $this->db->query("SELECT * FROM $this->table WHERE status = 'pending' AND scheduled_at <= ?d AND (expires_at IS NULL OR expires_at > ?d) AND locked_at IS NULL LIMIT ?i FOR UPDATE", $now, $now, $limit);
+        }
 
         return $this->db->fetchAll();
     }
 
     /**
-     * Lock a task for processing.
+     * Lock a task for processing by updating its status and lock timestamp.
      *
-     * @param int $taskId Task ID to lock
+     * @param int $taskId ID of the task to lock
      * @throws Exception When database query fails
      */
     private function lockTask(int $taskId): void
@@ -117,7 +124,7 @@ final readonly class TaskQueue
     /**
      * Mark a task as completed.
      *
-     * @param int $taskId Task ID to mark
+     * @param int $taskId ID of the task
      * @throws Exception When database query fails
      */
     public function markCompleted(int $taskId): void
@@ -126,10 +133,11 @@ final readonly class TaskQueue
     }
 
     /**
-     * Mark a task as failed and increment retry count.
+     * Mark a task as failed and increment its retry counter.
+     * If the retry count exceeds the max retry limit, the task is marked as 'failed'; otherwise, it is returned to 'pending'.
      *
-     * @param int $taskId Task ID to mark
-     * @param string $error Error description
+     * @param int $taskId ID of the task
+     * @param string $error Optional error message
      * @throws Exception When database query fails
      */
     public function markFailed(int $taskId, string $error = ''): void
@@ -143,17 +151,19 @@ final readonly class TaskQueue
     }
 
     /**
-     * Process pending tasks with a callback.
+     * Process pending tasks using a callback.
+     * The callback receives the task name and decoded payload array.
      *
-     * @param callable $callback Function to process each task (fn(string $name, array $payload): void)
+     * @param callable $callback Function to process each task: fn(string $name, array $payload): void
      * @param int $limit Maximum number of tasks to process
-     * @throws Exception When database query fails
+     * @param string|null $onlyType If provided, only tasks with this payload_type will be processed
+     * @throws Exception When database operations fail
      */
-    public function processPendingTasks(callable $callback, int $limit = 10): void
+    public function processPendingTasks(callable $callback, int $limit = 10, ?string $onlyType = null): void
     {
         $this->db->beginTransaction();
         try {
-            $tasks = $this->getPendingTasks($limit);
+            $tasks = $this->getPendingTasks($limit, $onlyType);
 
             foreach ($tasks as $task) {
                 try {

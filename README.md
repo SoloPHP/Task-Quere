@@ -1,10 +1,10 @@
 # TaskQueue
 
 [![Version](https://img.shields.io/badge/version-1.1.0-blue.svg)](https://github.com/solophp/task-queue)  
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](https://opensource.org/licenses/MIT)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
 
 A lightweight PHP task queue built on top of the Solo Database.  
-Supports scheduled execution, retries, task expiration, and optional process-level locking via `LockGuard`.
+Supports scheduled execution, retries, task expiration, indexed task types, and optional process-level locking via `LockGuard`.
 
 ## 📦 Installation
 
@@ -28,12 +28,12 @@ $queue->install(); // creates the tasks table if not exists
 ```php
 $taskId = $queue->addTask(
     'email_notification',
-    ['user_id' => 123, 'template' => 'welcome'],
+    ['type' => 'email_notification', 'user_id' => 123, 'template' => 'welcome'],
     new DateTimeImmutable('tomorrow')
 );
 ```
 
-### Process tasks:
+### Process all tasks:
 
 ```php
 $queue->processPendingTasks(function (string $name, array $payload) {
@@ -45,10 +45,19 @@ $queue->processPendingTasks(function (string $name, array $payload) {
 });
 ```
 
+### Process only specific type:
+
+```php
+$queue->processPendingTasks(function (string $name, array $payload) {
+    sendEmail($payload);
+}, 20, 'email_notification'); // only tasks with payload_type = 'email_notification'
+```
+
 ## 🧰 Features
 
 - **Task Retries** – Configurable max retry attempts before marking as failed
 - **Task Expiration** – Automatic expiration via `expires_at` timestamp
+- **Indexed Task Types** – Fast filtering by `payload_type`  
 - **Row-Level Locking** – Prevents concurrent execution of the same task
 - **Transactional Safety** – All task operations are executed within a transaction
 - **Optional Process Locking** – Add `LockGuard` to prevent multiple queue runners from overlapping
