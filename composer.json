@@ -18,7 +18,8 @@
   "require": {
     "php": ">=8.2",
     "ext-json": "*",
-    "solophp/database": "^2.8"
+    "solophp/database": "^2.8",
+    "ext-posix": "*"
   },
   "minimum-stability": "dev",
   "prefer-stable": true
