@@ -12,28 +12,11 @@ use Throwable;
  */
 final readonly class TaskQueue
 {
-    /** @var Database Database connection */
-    private Database $db;
-
-    /** @var string Table name for storing tasks */
-    private string $table;
-
-    /** @var int Maximum retry attempts before marking a task as failed */
-    private int $maxRetries;
-
-    /**
-     * TaskQueue constructor.
-     *
-     * @param Database $db Database instance
-     * @param string $table Table name for storing tasks
-     * @param int $maxRetries Maximum retry attempts before failure
-     */
-    public function __construct(Database $db, string $table = 'tasks', int $maxRetries = 3)
-    {
-        $this->db = $db;
-        $this->table = $table;
-        $this->maxRetries = $maxRetries;
-    }
+    public function __construct(
+        private Database $db,
+        private string $table = 'tasks',
+        private int $maxRetries = 3
+    ) {}
 
     /**
      * Create tasks table if not exists.
@@ -66,14 +49,16 @@ final readonly class TaskQueue
      *
      * @param string $name Task identifier
      * @param array $payload Task data (should include 'type' key if filtering by type is needed)
-     * @param DateTimeImmutable $scheduledAt When the task should be executed
+     * @param DateTimeImmutable|null $scheduledAt When the task should be executed (default: now)
      * @param DateTimeImmutable|null $expiresAt When the task becomes invalid (optional)
      * @return int ID of the newly inserted task
      * @throws JsonException When payload encoding fails
      * @throws Exception When database query fails
      */
-    public function addTask(string $name, array $payload, DateTimeImmutable $scheduledAt, ?DateTimeImmutable $expiresAt = null): int
+    public function addTask(string $name, array $payload, ?DateTimeImmutable $scheduledAt = null, ?DateTimeImmutable $expiresAt = null): int
     {
+        $scheduledAt ??= new DateTimeImmutable();
+
         $payloadJson = json_encode($payload, JSON_THROW_ON_ERROR);
         $payloadType = $payload['type'] ?? 'default';
 
@@ -93,7 +78,7 @@ final readonly class TaskQueue
      * Retrieve pending tasks ready for execution.
      *
      * @param int $limit Maximum number of tasks to retrieve
-     * @param string|null $onlyType If provided, only tasks with this payload_type will be returned
+     * @param string|null $onlyType If provided, only tasks with this payload_type column value will be returned
      * @return object[] Array of task records as objects
      * @throws Exception When database query fails
      */
@@ -101,10 +86,14 @@ final readonly class TaskQueue
     {
         $now = new DateTimeImmutable();
 
+        $query = "SELECT * FROM $this->table WHERE status = 'pending' AND scheduled_at <= ?d AND (expires_at IS NULL OR expires_at > ?d) AND locked_at IS NULL";
+
         if ($onlyType) {
-            $this->db->query("SELECT * FROM $this->table WHERE status = 'pending' AND scheduled_at <= ?d AND (expires_at IS NULL OR expires_at > ?d) AND locked_at IS NULL AND payload_type = ?s LIMIT ?i FOR UPDATE", $now, $now, $onlyType, $limit);
+            $query .= " AND payload_type = ?s LIMIT ?i FOR UPDATE";
+            $this->db->query($query, $now, $now, $onlyType, $limit);
         } else {
-            $this->db->query("SELECT * FROM $this->table WHERE status = 'pending' AND scheduled_at <= ?d AND (expires_at IS NULL OR expires_at > ?d) AND locked_at IS NULL LIMIT ?i FOR UPDATE", $now, $now, $limit);
+            $query .= " LIMIT ?i FOR UPDATE";
+            $this->db->query($query, $now, $now, $limit);
         }
 
         return $this->db->fetchAll();
@@ -156,7 +145,7 @@ final readonly class TaskQueue
      *
      * @param callable $callback Function to process each task: fn(string $name, array $payload): void
      * @param int $limit Maximum number of tasks to process
-     * @param string|null $onlyType If provided, only tasks with this payload_type will be processed
+     * @param string|null $onlyType If provided, only tasks with this value in the 'payload_type' column will be processed
      * @throws Exception When database operations fail
      */
     public function processPendingTasks(callable $callback, int $limit = 10, ?string $onlyType = null): void

@@ -29,7 +29,7 @@ $queue->install(); // creates the tasks table if not exists
 $taskId = $queue->addTask(
     'email_notification',
     ['type' => 'email_notification', 'user_id' => 123, 'template' => 'welcome'],
-    new DateTimeImmutable('tomorrow')
+    new DateTimeImmutable('tomorrow') // optional, defaults to now
 );
 ```
 
@@ -50,7 +50,7 @@ $queue->processPendingTasks(function (string $name, array $payload) {
 ```php
 $queue->processPendingTasks(function (string $name, array $payload) {
     sendEmail($payload);
-}, 20, 'email_notification'); // only tasks with payload_type = 'email_notification'
+}, 20, 'email_notification'); // only tasks where payload_type column = 'email_notification'
 ```
 
 ## 🔒 Using `LockGuard` (optional)
@@ -59,7 +59,7 @@ $queue->processPendingTasks(function (string $name, array $payload) {
 use Solo\TaskQueue\LockGuard;
 
 $lockFile = __DIR__ . '/storage/locks/my_worker.lock';
-$lock = new LockGuard($lockFile);
+$lock = new LockGuard($lockFile); // path to lock file
 
 if (!$lock->acquire()) {
     exit(0); // Another worker is already running
@@ -83,14 +83,14 @@ try {
 
 ## 🧪 API Methods
 
-| Method                                                                                                                | Description                                           |
-|-----------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------|
-| `install()`                                                                                                           | Create the tasks table                                |
-| `addTask(string $name, array $payload, DateTimeImmutable $scheduledAt, ?DateTimeImmutable $expiresAt = null)`       | Add task to the queue                                 |
-| `getPendingTasks(int $limit = 10, ?string $onlyType = null)`                                                        | Retrieve ready-to-run tasks, optionally filtered by type |
-| `markCompleted(int $taskId)`                                                                                          | Mark task as completed                                |
-| `markFailed(int $taskId, string $error = '')`                                                                         | Mark task as failed with error message                |
-| `processPendingTasks(callable $callback, int $limit = 10, ?string $onlyType = null)`                                 | Process pending tasks with a custom handler           |
+| Method                                                                                                                | Description                                                    |
+|-----------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------|
+| `install()`                                                                                                           | Create the tasks table                                         |
+| `addTask(string $name, array $payload, ?DateTimeImmutable $scheduledAt = null, ?DateTimeImmutable $expiresAt = null)` | Add task to the queue (default schedule: now)                 |
+| `getPendingTasks(int $limit = 10, ?string $onlyType = null)`                                                         | Retrieve ready-to-run tasks, optionally filtered by type       |
+| `markCompleted(int $taskId)`                                                                                          | Mark task as completed                                         |
+| `markFailed(int $taskId, string $error = '')`                                                                         | Mark task as failed with error message                         |
+| `processPendingTasks(callable $callback, int $limit = 10, ?string $onlyType = null)`                                 | Process pending tasks with a custom handler                    |
 
 ## 📄 License
 
