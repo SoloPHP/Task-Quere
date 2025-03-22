@@ -2,18 +2,41 @@
 
 namespace Solo\TaskQueue;
 
+/**
+ * LockGuard prevents parallel execution of a process by using a lock file.
+ * Useful in cron-based task workers or long-running scripts to avoid overlaps.
+ */
 final class LockGuard
 {
+    /**
+     * Full path to the lock file.
+     *
+     * @var string
+     */
     private string $file;
 
+    /**
+     * Indicates whether the current instance owns the lock.
+     *
+     * @var bool
+     */
     private bool $active = false;
 
-    public function __construct(string $name = 'task_worker.lock', ?string $dir = null)
+    /**
+     * @param string $file Absolute path to the lock file
+     */
+    public function __construct(string $file)
     {
-        $dir ??= dirname(__DIR__, 2) . '/storage/locks';
-        $this->file = rtrim($dir, '/') . '/' . ltrim($name, '/');
+        $this->file = $file;
     }
 
+    /**
+     * Attempts to acquire the lock.
+     * If the lock file exists and the process is still running — returns false.
+     * If the lock file is stale or missing, creates a new lock.
+     *
+     * @return bool True if lock acquired, false otherwise
+     */
     public function acquire(): bool
     {
         if (!is_dir(dirname($this->file))) {
@@ -36,6 +59,9 @@ final class LockGuard
         return true;
     }
 
+    /**
+     * Releases the lock by removing the lock file.
+     */
     public function release(): void
     {
         if ($this->active && file_exists($this->file)) {

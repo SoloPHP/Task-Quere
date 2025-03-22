@@ -53,21 +53,13 @@ $queue->processPendingTasks(function (string $name, array $payload) {
 }, 20, 'email_notification'); // only tasks with payload_type = 'email_notification'
 ```
 
-## 🧰 Features
-
-- **Task Retries** – Configurable max retry attempts before marking as failed
-- **Task Expiration** – Automatic expiration via `expires_at` timestamp
-- **Indexed Task Types** – Fast filtering by `payload_type`  
-- **Row-Level Locking** – Prevents concurrent execution of the same task
-- **Transactional Safety** – All task operations are executed within a transaction
-- **Optional Process Locking** – Add `LockGuard` to prevent multiple queue runners from overlapping
-
 ## 🔒 Using `LockGuard` (optional)
 
 ```php
 use Solo\TaskQueue\LockGuard;
 
-$lock = new LockGuard('my_worker.lock');
+$lockFile = __DIR__ . '/storage/locks/my_worker.lock';
+$lock = new LockGuard($lockFile);
 
 if (!$lock->acquire()) {
     exit(0); // Another worker is already running
@@ -76,20 +68,29 @@ if (!$lock->acquire()) {
 try {
     $queue->processPendingTasks(...);
 } finally {
-    $lock->release(); // Optional, called automatically on shutdown if not released manually
+    $lock->release(); // Optional, auto-released on shutdown
 }
 ```
 
+## 🧰 Features
+
+- **Task Retries** – Configurable max retry attempts before marking as failed  
+- **Task Expiration** – Automatic expiration via `expires_at` timestamp  
+- **Indexed Task Types** – Fast filtering by `payload_type`  
+- **Row-Level Locking** – Prevents concurrent execution of the same task  
+- **Transactional Safety** – All task operations are executed within a transaction  
+- **Optional Process Locking** – Prevent overlapping workers using `LockGuard`  
+
 ## 🧪 API Methods
 
-| Method                                                                                                        | Description                                 |
-|---------------------------------------------------------------------------------------------------------------|---------------------------------------------|
-| `install()`                                                                                                   | Create the tasks table                      |
-| `addTask(string $name, array $payload, DateTimeImmutable $scheduledAt, ?DateTimeImmutable $expiresAt = null)` | Add task to the queue                       |
-| `getPendingTasks(int $limit = 10)`                                                                            | Retrieve ready-to-run tasks                 |
-| `markCompleted(int $taskId)`                                                                                  | Mark task as completed                      |
-| `markFailed(int $taskId, string $error = '')`                                                                 | Mark task as failed with error message      |
-| `processPendingTasks(callable $callback, int $limit = 10)`                                                    | Process pending tasks with a custom handler |
+| Method                                                                                                                | Description                                           |
+|-----------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------|
+| `install()`                                                                                                           | Create the tasks table                                |
+| `addTask(string $name, array $payload, DateTimeImmutable $scheduledAt, ?DateTimeImmutable $expiresAt = null)`       | Add task to the queue                                 |
+| `getPendingTasks(int $limit = 10, ?string $onlyType = null)`                                                        | Retrieve ready-to-run tasks, optionally filtered by type |
+| `markCompleted(int $taskId)`                                                                                          | Mark task as completed                                |
+| `markFailed(int $taskId, string $error = '')`                                                                         | Mark task as failed with error message                |
+| `processPendingTasks(callable $callback, int $limit = 10, ?string $onlyType = null)`                                 | Process pending tasks with a custom handler           |
 
 ## 📄 License
 
