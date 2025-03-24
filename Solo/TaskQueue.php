@@ -14,9 +14,12 @@ final readonly class TaskQueue
 {
     public function __construct(
         private Database $db,
-        private string $table = 'tasks',
-        private int $maxRetries = 3
-    ) {}
+        private string   $table = 'tasks',
+        private int      $maxRetries = 3,
+        private bool     $deleteOnSuccess = false
+    )
+    {
+    }
 
     /**
      * Create tasks table if not exists.
@@ -111,14 +114,18 @@ final readonly class TaskQueue
     }
 
     /**
-     * Mark a task as completed.
+     * Mark a task as completed or delete it based on configuration.
      *
      * @param int $taskId ID of the task
      * @throws Exception When database query fails
      */
     public function markCompleted(int $taskId): void
     {
-        $this->db->query("UPDATE $this->table SET status = 'completed', locked_at = NULL WHERE id = ?i", $taskId);
+        if ($this->deleteOnSuccess) {
+            $this->db->query("DELETE FROM $this->table WHERE id = ?i", $taskId);
+        } else {
+            $this->db->query("UPDATE $this->table SET status = 'completed', locked_at = NULL WHERE id = ?i", $taskId);
+        }
     }
 
     /**

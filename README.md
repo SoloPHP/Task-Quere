@@ -4,7 +4,7 @@
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
 
 A lightweight PHP task queue built on top of the Solo Database.  
-Supports scheduled execution, retries, task expiration, indexed task types, and optional process-level locking via `LockGuard`.
+Supports scheduled execution, retries, task expiration, indexed task types, automatic deletion of completed tasks, and optional process-level locking via `LockGuard`.
 
 ## 📦 Installation
 
@@ -80,6 +80,7 @@ try {
 - **Row-Level Locking** – Prevents concurrent execution of the same task  
 - **Transactional Safety** – All task operations are executed within a transaction  
 - **Optional Process Locking** – Prevent overlapping workers using `LockGuard`  
+- **Optional Deletion on Success** – Set `deleteOnSuccess: true` to automatically delete tasks after success  
 
 ## 🧪 API Methods
 
