@@ -17,7 +17,7 @@ composer require solophp/task-queue
 ```php
 use Solo\Queue\TaskQueue;
 
-$queue = new TaskQueue($db, 'tasks', 5); // table name, max retries
+$queue = new TaskQueue($db, table: 'tasks', maxRetries: 5, deleteOnSuccess: true);
 $queue->install(); // creates the tasks table if not exists
 ```
 
