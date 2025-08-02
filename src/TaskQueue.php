@@ -1,11 +1,14 @@
-<?php declare(strict_types=1);
+<?php
 
-namespace Solo;
+declare(strict_types=1);
+
+namespace Solo\TaskQueue;
 
 use DateTimeImmutable;
 use Exception;
 use JsonException;
 use Throwable;
+use PDO;
 
 /**
  * Task Queue for managing asynchronous tasks.
@@ -13,12 +16,11 @@ use Throwable;
 final readonly class TaskQueue
 {
     public function __construct(
-        private Database $db,
-        private string   $table = 'tasks',
-        private int      $maxRetries = 3,
-        private bool     $deleteOnSuccess = false
-    )
-    {
+        private PDO $db,
+        private string $table = 'tasks',
+        private int $maxRetries = 3,
+        private bool $deleteOnSuccess = false
+    ) {
     }
 
     /**
@@ -28,7 +30,7 @@ final readonly class TaskQueue
      */
     public function install(): void
     {
-        $this->db->query("CREATE TABLE IF NOT EXISTS $this->table (
+        $sql = "CREATE TABLE IF NOT EXISTS $this->table (
             id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
             name VARCHAR(255) NOT NULL,
             payload JSON NOT NULL,
@@ -44,7 +46,9 @@ final readonly class TaskQueue
             INDEX idx_status_scheduled (status, scheduled_at),
             INDEX idx_locked_at (locked_at),
             INDEX idx_payload_type (payload_type)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
+
+        $this->db->exec($sql);
     }
 
     /**
@@ -58,21 +62,26 @@ final readonly class TaskQueue
      * @throws JsonException When payload encoding fails
      * @throws Exception When database query fails
      */
-    public function addTask(string $name, array $payload, ?DateTimeImmutable $scheduledAt = null, ?DateTimeImmutable $expiresAt = null): int
-    {
+    public function addTask(
+        string $name,
+        array $payload,
+        ?DateTimeImmutable $scheduledAt = null,
+        ?DateTimeImmutable $expiresAt = null
+    ): int {
         $scheduledAt ??= new DateTimeImmutable();
 
         $payloadJson = json_encode($payload, JSON_THROW_ON_ERROR);
         $payloadType = $payload['type'] ?? 'default';
 
-        $this->db->query(
-            "INSERT INTO $this->table SET name = ?s, payload = ?s, payload_type = ?s, scheduled_at = ?d, expires_at = ?d",
+        $sql = "INSERT INTO $this->table (name, payload, payload_type, scheduled_at, expires_at) VALUES (?, ?, ?, ?, ?)";
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute([
             $name,
             $payloadJson,
             $payloadType,
-            $scheduledAt,
-            $expiresAt
-        );
+            $scheduledAt->format('Y-m-d H:i:s'),
+            $expiresAt?->format('Y-m-d H:i:s')
+        ]);
 
         return (int)$this->db->lastInsertId();
     }
@@ -89,17 +98,28 @@ final readonly class TaskQueue
     {
         $now = new DateTimeImmutable();
 
-        $query = "SELECT * FROM $this->table WHERE status = 'pending' AND scheduled_at <= ?d AND (expires_at IS NULL OR expires_at > ?d) AND locked_at IS NULL";
+        $sql = "SELECT * FROM $this->table WHERE status = 'pending' AND scheduled_at <= ? AND (expires_at IS NULL OR expires_at > ?) AND locked_at IS NULL";
 
         if ($onlyType) {
-            $query .= " AND payload_type = ?s LIMIT ?i FOR UPDATE";
-            $this->db->query($query, $now, $now, $onlyType, $limit);
+            $sql .= " AND payload_type = ? LIMIT ? FOR UPDATE";
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute([
+                $now->format('Y-m-d H:i:s'),
+                $now->format('Y-m-d H:i:s'),
+                $onlyType,
+                $limit
+            ]);
         } else {
-            $query .= " LIMIT ?i FOR UPDATE";
-            $this->db->query($query, $now, $now, $limit);
+            $sql .= " LIMIT ? FOR UPDATE";
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute([
+                $now->format('Y-m-d H:i:s'),
+                $now->format('Y-m-d H:i:s'),
+                $limit
+            ]);
         }
 
-        return $this->db->fetchAll();
+        return $stmt->fetchAll(PDO::FETCH_OBJ);
     }
 
     /**
@@ -110,7 +130,9 @@ final readonly class TaskQueue
      */
     private function lockTask(int $taskId): void
     {
-        $this->db->query("UPDATE $this->table SET locked_at = NOW(), status = 'in_progress' WHERE id = ?i", $taskId);
+        $sql = "UPDATE $this->table SET locked_at = NOW(), status = 'in_progress' WHERE id = ?";
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute([$taskId]);
     }
 
     /**
@@ -122,9 +144,13 @@ final readonly class TaskQueue
     public function markCompleted(int $taskId): void
     {
         if ($this->deleteOnSuccess) {
-            $this->db->query("DELETE FROM $this->table WHERE id = ?i", $taskId);
+            $sql = "DELETE FROM $this->table WHERE id = ?";
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute([$taskId]);
         } else {
-            $this->db->query("UPDATE $this->table SET status = 'completed', locked_at = NULL WHERE id = ?i", $taskId);
+            $sql = "UPDATE $this->table SET status = 'completed', locked_at = NULL WHERE id = ?";
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute([$taskId]);
         }
     }
 
@@ -138,12 +164,13 @@ final readonly class TaskQueue
      */
     public function markFailed(int $taskId, string $error = ''): void
     {
-        $this->db->query(
-            "UPDATE $this->table SET status = CASE WHEN retry_count >= ?i THEN 'failed' ELSE 'pending' END, retry_count = retry_count + 1, error = ?s, locked_at = NULL WHERE id = ?i",
+        $sql = "UPDATE $this->table SET status = CASE WHEN retry_count >= ? THEN 'failed' ELSE 'pending' END, retry_count = retry_count + 1, error = ?, locked_at = NULL WHERE id = ?";
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute([
             $this->maxRetries,
             $error,
             $taskId
-        );
+        ]);
     }
 
     /**

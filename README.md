@@ -1,9 +1,10 @@
 # TaskQueue
 
-[![Version](https://img.shields.io/badge/version-1.1.0-blue.svg)](https://github.com/solophp/task-queue)  
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
+[![Latest Version on Packagist](https://img.shields.io/packagist/v/solophp/task-queue.svg)](https://packagist.org/packages/solophp/task-queue)
+[![License](https://img.shields.io/packagist/l/solophp/task-queue.svg)](https://github.com/solophp/task-queue/blob/main/LICENSE)
+[![PHP Version](https://img.shields.io/packagist/php-v/solophp/task-queue.svg)](https://packagist.org/packages/solophp/task-queue)
 
-A lightweight PHP task queue built on top of the Solo Database.  
+A lightweight PHP task queue built on top of PDO.  
 Supports scheduled execution, retries, task expiration, indexed task types, automatic deletion of completed tasks, and optional process-level locking via `LockGuard`.
 
 ## 📦 Installation
@@ -12,12 +13,23 @@ Supports scheduled execution, retries, task expiration, indexed task types, auto
 composer require solophp/task-queue
 ```
 
+## 📋 Requirements
+
+- **PHP**: >= 8.2
+- **Extensions**: 
+  - `ext-json` - for JSON payload handling
+  - `ext-pdo` - for database operations
+  - `ext-posix` - for LockGuard process locking (optional)
+
+This package uses standard PHP extensions and has minimal external dependencies. No external database libraries required - works with any PDO-compatible database (MySQL, PostgreSQL, SQLite, etc.).
+
 ## ⚙️ Setup
 
 ```php
-use Solo\Queue\TaskQueue;
+use Solo\TaskQueue\TaskQueue;
 
-$queue = new TaskQueue($db, table: 'tasks', maxRetries: 5, deleteOnSuccess: true);
+$pdo = new PDO('mysql:host=localhost;dbname=test', 'username', 'password');
+$queue = new TaskQueue($pdo, table: 'tasks', maxRetries: 5, deleteOnSuccess: true);
 $queue->install(); // creates the tasks table if not exists
 ```
 
@@ -92,6 +104,19 @@ try {
 | `markCompleted(int $taskId)`                                                                                          | Mark task as completed                                         |
 | `markFailed(int $taskId, string $error = '')`                                                                         | Mark task as failed with error message                         |
 | `processPendingTasks(callable $callback, int $limit = 10, ?string $onlyType = null)`                                 | Process pending tasks with a custom handler                    |
+
+## 🧪 Testing
+
+```bash
+# Run tests
+composer test
+
+# Run code sniffer
+composer cs
+
+# Fix code style issues
+composer cs-fix
+```
 
 ## 📄 License
 

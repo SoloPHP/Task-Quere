@@ -1,4 +1,6 @@
-<?php declare(strict_types=1);
+<?php
+
+declare(strict_types=1);
 
 namespace Solo\TaskQueue;
 
@@ -10,15 +12,11 @@ final class LockGuard
 {
     /**
      * Full path to the lock file.
-     *
-     * @var string
      */
     private string $file;
 
     /**
      * Indicates whether the current instance owns the lock.
-     *
-     * @var bool
      */
     private bool $active = false;
 
