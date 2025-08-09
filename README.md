@@ -94,6 +94,12 @@ try {
 - **Optional Process Locking** – Prevent overlapping workers using `LockGuard`  
 - **Optional Deletion on Success** – Set `deleteOnSuccess: true` to automatically delete tasks after success  
 
+## 🔗 Integration with Event-Dispatcher
+
+TaskQueue implements `TaskQueueInterface` and can be used as an async queue backend for [SoloPHP Event-Dispatcher](https://github.com/SoloPHP/Event-Dispatcher). The Event-Dispatcher library should contain a `TaskQueueAdapter` in its adapter collection that implements the integration.
+
+For async event processing setup, refer to the Event-Dispatcher documentation.
+
 ## 🧪 API Methods
 
 | Method                                                                                                                | Description                                                    |

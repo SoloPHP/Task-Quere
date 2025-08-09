@@ -13,7 +13,7 @@ use PDO;
 /**
  * Task Queue for managing asynchronous tasks.
  */
-final readonly class TaskQueue
+final readonly class TaskQueue implements TaskQueueInterface
 {
     public function __construct(
         private PDO $db,
