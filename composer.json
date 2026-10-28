@@ -2,6 +2,7 @@
   "name": "solophp/task-queue",
   "type": "library",
   "description": "Enhanced PHP task queue using Solo Database with retry mechanism and task expiration support.",
+  "abandoned": "solophp/job-queue",
   "keywords": ["php", "queue", "tasks", "jobs", "scheduler", "async"],
   "license": "MIT",
   "authors": [

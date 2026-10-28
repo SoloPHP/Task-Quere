@@ -1,5 +1,8 @@
 # TaskQueue
 
+> [!WARNING]
+> **Abandoned.** This package is no longer maintained and gets no fixes. Use [solophp/job-queue](https://github.com/SoloPHP/Job-Queue) instead. The current Solo packages are listed at [solophp.github.io](https://solophp.github.io/packages.html).
+
 [![Latest Version on Packagist](https://img.shields.io/packagist/v/solophp/task-queue.svg)](https://packagist.org/packages/solophp/task-queue)
 [![License](https://img.shields.io/packagist/l/solophp/task-queue.svg)](https://github.com/solophp/task-queue/blob/main/LICENSE)
 [![PHP Version](https://img.shields.io/packagist/php-v/solophp/task-queue.svg)](https://packagist.org/packages/solophp/task-queue)
